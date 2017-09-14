@@ -6,7 +6,7 @@ import time
 TIMER_LIST_NR   = 256 #数组个数 
 TIMER_LIST_MASK = 255 #掩码 
 
-#定时器结点
+#定时器双向链表结点
 class TimeNode:
 	def __init__(self,fFunCb,iExpireTick,iTime,bIsLoop,iSession,stData):
 		self.m_stData   	= stData
@@ -17,13 +17,14 @@ class TimeNode:
 		self.m_stNext 		= None
 		self.m_stFront  	= None
 		self.m_bIsLoop      = bIsLoop
+
+	#重置
 	def Reset(self):
 		self.m_stNext 		= None
 		self.m_stFront  	= None
 		self.m_iExpireTick  = 0
-		self.m_iSession 	= 0
 
-#定时器链表
+#定时器双向链表
 class TimeLink:
 	def __init__(self):
 		self.m_stHead = None
@@ -32,15 +33,16 @@ class TimeLink:
 #----------定时器,单位为10毫秒-----------
 class TimeMgr:
 	def __init__(self):
-		self.m_iSession  = 1
+		self.m_iSession  = 4294967293
 		self.m_szData    = []
-		self.m_iCurTick  = self.GetCurTick()
+		self.m_iCurTick  = 4294967293 
 		self.m_hData	 = {}
+		self.m_iLastTime = self.GetCurTime()
 		for i in range(1,TIMER_LIST_NR+1):
 			self.m_szData.append(TimeLink())
 
 	#获得当前时间，单位为10毫秒
-	def GetCurTick(self):
+	def GetCurTime(self):
 		return int(round(time.time() * 100))
 
 	#根据超时时间获得索引
@@ -52,83 +54,133 @@ class TimeMgr:
 	#param iTime 循环时间，单位为毫秒
 	#param bIsLoop 是否循环
 	#param stData 用户数据，回调时作为参数
-	def AddTime(self,fFunCb,iTime,bIsLoop,stData):
-		iExpireTick = self.GetTick(iTime) + self.m_iCurTick
-		iCurSession = self.GetSession()
-		stTimeNode  = TimeNode(fFunCb,iExpireTick,iTime,bIsLoop,stData,iCurSession)
+	def AddTimer(self,fFunCb,iTime,bIsLoop,stData):
+		iExpireTick = (self.GetTick(iTime) + self.m_iCurTick)&0xffffffff
+		iCurSession = self.MakeSession()
+		stTimeNode  = TimeNode(fFunCb,iExpireTick,iTime,bIsLoop,iCurSession,stData)
 
-		self.AddNode(stTimeNode)
-
+		iIndex = self.AddTail(stTimeNode)
+		self.m_hData[stTimeNode.m_iSession] = stTimeNode
 		return iCurSession
 
-	#添加一个节点	
-	def AddNode(self,stTimeNode):
+	#尾插法添加一个节点	
+	def AddTail(self,stTimeNode):
 		iIndex 		= self.HashCode(stTimeNode.m_iExpireTick)
 		stTimeLink  = self.m_szData[iIndex]
-
 		if stTimeLink.m_stHead == None:
 			stTimeLink.m_stHead = stTimeNode
 			stTimeLink.m_stTail = stTimeNode
 		else:
 			stTimeNode.m_stFront = stTimeLink.m_stTail
-			stTimeLink.m_stNext  = stTimeNode
+			stTimeLink.m_stTail.m_stNext  = stTimeNode
 			stTimeLink.m_stTail  = stTimeNode
+		return iIndex	
 
-		self.m_hData[stTimeNode.m_iSession] = stTimeNode
+	#头插法添加一个节点
+	def AddHead(self,stTimeNode):
+		iIndex 		= self.HashCode(stTimeNode.m_iExpireTick)
+		stTimeLink  = self.m_szData[iIndex]
+		if stTimeLink.m_stHead == None:
+			stTimeLink.m_stHead = stTimeNode
+			stTimeLink.m_stTail = stTimeNode
+		else:
+			stTimeLink.m_stHead.m_stFront = stTimeNode
+			stTimeNode.m_stNext = stTimeLink.m_stHead
+			stTimeLink.m_stHead = stTimeNode
+		return iIndex
 
 	#时间转成 tick，一个 tick 为10毫秒
 	def GetTick(self,iTime):
 		return iTime/10
 
-	#session ,对应一个 TimeNode
-	def GetSession(self):
-		if self.m_iSession >= 4294967295:
-			self.m_iSession = 1
-		iResultSession  = self.m_iSession
-		self.m_iSession = self.m_iSession + 1
+	#生成一个 session ,对应一个 TimeNode
+	def MakeSession(self):
+		iResultSession = 0
+		while True:
+			#0不使用
+			if self.m_iSession == 0:
+				self.m_iSession = 1
+			iResultSession  = self.m_iSession
+			#最大为 4294967295
+			self.m_iSession = (self.m_iSession + 1)&0xffffffff
+			if self.m_hData.has_key(iResultSession) == False:
+				break
 		return iResultSession
 
 	#定时更新
 	def UpdateTime(self):
-		iCurTick = self.GetCurTick()
-		iTickCount = iCurTick - self.m_iCurTick
-		if iTickCount < 1:
+		iCurTime = self.GetCurTime()
+		iTickCount = iCurTime - self.m_iLastTime
+		if iTickCount < 2:
 			return
-		self.m_iCurTick = iCurTick 
-		stLoopNode = []
-		for i in range(1,iTickCount+1):
-			self.m_iCurTick = self.m_iCurTick+1
-			iIndex = self.HashCode(self.m_iCurTick)
-			stTimeLink = self.m_szData[iIndex]
-			self.TimeExecute(stTimeLink,stLoopNode)
+		iLastTick = self.m_iCurTick
+		self.m_iCurTick = self.m_iCurTick + iTickCount
+		#最大为 4294967295
+		self.m_iCurTick = self.m_iCurTick&0xffffffff
 
-		for k,v in enumerate(stLoopNode):
-			v.m_iExpireTick  = self.GetTick(v.m_iTime) + self.m_iCurTick
-			v.m_iSession 	 = self.GetSession()
-			self.AddNode(v)
+		self.m_iLastTime = iCurTime 
+		for i in range(0,iTickCount+1):
+			iCurTick = (iLastTick + i)&0xffffffff
+			iIndex = self.HashCode(iCurTick)
+			stTimeLink = self.m_szData[iIndex]
+			self.TimeExecute(stTimeLink,iCurTick)
 
 	#执行回调
-	def TimeExecute(self,stTimeLink,stLoopNode):
+	def TimeExecute(self,stTimeLink,iCurTick):
 		stCurNode  = stTimeLink.m_stHead
 		stTempNode = None
 		while stCurNode != None:
-			if self.m_iCurTick == stCurNode.m_iExpireTick:
-				stCurNode.m_fFunCb(stCurNode.m_stData)
+			if iCurTick == stCurNode.m_iExpireTick:				
 				stTempNode = stCurNode
-				if stCurNode.m_stFront != None:
-					stCurNode.m_stFront.m_stNext = stCurNode.m_stNext
-				else:
-					stTimeLink.m_stHead = stCurNode.m_stNext
-
-				if stCurNode.m_stNext != None:
-					stCurNode.m_stNext.m_stFront = stCurNode.m_stFront
-
 				stCurNode = stCurNode.m_stNext
-
+				self.RemoveNode(stTimeLink,stTempNode)
+				
 				stTempNode.Reset()
+				stTempNode.m_iExpireTick  = self.GetTick(stTempNode.m_iTime) + self.m_iCurTick
 				if stTempNode.m_bIsLoop:
-					stTempNode.Reset()
-					stLoopNode.append(stTempNode)
+					self.AddHead(stTempNode)
+
+				#回调放后面，防止在回调期间注册定时器，导致链表出错
+				stTempNode.m_fFunCb(stTempNode.m_stData)
+			else:
+				stCurNode = stCurNode.m_stNext
 
 		if stTimeLink.m_stHead == None:
 			stTimeLink.m_stTail = None
+
+	#删除定时器	
+	def RemoveTimer(self,iSession):
+		if self.m_hData.has_key(iSession) == False:
+			return False
+
+		stTimeNode = self.m_hData[iSession]
+		iIndex 	   = self.HashCode(stTimeNode.m_iExpireTick)
+		stTimeLink = self.m_szData[iIndex]
+		self.RemoveNode(stTimeLink,stTimeNode)
+		del self.m_hData[iSession]
+
+		return True
+
+	#删除结点
+	def RemoveNode(self,stTimeLink,stTimeNode):
+		if stTimeNode.m_stFront != None:
+			stTimeNode.m_stFront.m_stNext = stTimeNode.m_stNext
+		else:
+			stTimeLink.m_stHead = stTimeNode.m_stNext
+
+		if stTimeNode.m_stNext != None:
+			stTimeNode.m_stNext.m_stFront = stTimeNode.m_stFront
+
+	#打印所有定时器
+	def Display(self):
+		iTotal = 0
+		for i in range(0,TIMER_LIST_NR):	
+			stTimeLink = self.m_szData[i]
+			stCurNode = stTimeLink.m_stHead
+			iOneNode = 0
+			while stCurNode != None:
+				iTotal = iTotal + 1
+				iOneNode = iOneNode + 1
+				print("list index %d expire %d session %d time %d index %d"%(i,stCurNode.m_iExpireTick,stCurNode.m_iSession,stCurNode.m_iTime,iOneNode))
+				stCurNode = stCurNode.m_stNext
+		print("---------------------%d"%(iTotal))
