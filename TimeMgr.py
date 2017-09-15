@@ -92,7 +92,7 @@ class TimeMgr:
 
 	#时间转成 tick，一个 tick 为10毫秒
 	def GetTick(self,iTime):
-		return iTime/10
+		return int(iTime/10)
 
 	#生成一个 session ,对应一个 TimeNode
 	def MakeSession(self):
