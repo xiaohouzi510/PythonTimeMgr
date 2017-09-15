@@ -3,8 +3,9 @@
 
 import time
 
-TIMER_LIST_NR   = 256 #数组个数 
-TIMER_LIST_MASK = 255 #掩码 
+TIMER_LIST_NR   = 256 			#数组个数 
+TIMER_LIST_MASK = 255 			#掩码 
+TICK_MASK		= 0xffffffff    #tick 掩码	
 
 #定时器双向链表结点
 class TimeNode:
@@ -55,7 +56,7 @@ class TimeMgr:
 	#param bIsLoop 是否循环
 	#param stData 用户数据，回调时作为参数
 	def AddTimer(self,fFunCb,iTime,bIsLoop,stData):
-		iExpireTick = (self.GetTick(iTime) + self.m_iCurTick)&0xffffffff
+		iExpireTick = (self.GetTick(iTime) + self.m_iCurTick)&TICK_MASK
 		iCurSession = self.MakeSession()
 		stTimeNode  = TimeNode(fFunCb,iExpireTick,iTime,bIsLoop,iCurSession,stData)
 
@@ -72,7 +73,7 @@ class TimeMgr:
 			stTimeLink.m_stTail = stTimeNode
 		else:
 			stTimeNode.m_stFront = stTimeLink.m_stTail
-			stTimeLink.m_stTail.m_stNext  = stTimeNode
+			stTimeLink.m_stTail.m_stNext = stTimeNode
 			stTimeLink.m_stTail  = stTimeNode
 		return iIndex	
 
@@ -102,7 +103,7 @@ class TimeMgr:
 				self.m_iSession = 1
 			iResultSession  = self.m_iSession
 			#最大为 4294967295
-			self.m_iSession = (self.m_iSession + 1)&0xffffffff
+			self.m_iSession = (self.m_iSession + 1)&TICK_MASK
 			if self.m_hData.has_key(iResultSession) == False:
 				break
 		return iResultSession
@@ -116,11 +117,11 @@ class TimeMgr:
 		iLastTick = self.m_iCurTick
 		self.m_iCurTick = self.m_iCurTick + iTickCount
 		#最大为 4294967295
-		self.m_iCurTick = self.m_iCurTick&0xffffffff
+		self.m_iCurTick = self.m_iCurTick&TICK_MASK
 
 		self.m_iLastTime = iCurTime 
 		for i in range(0,iTickCount+1):
-			iCurTick = (iLastTick + i)&0xffffffff
+			iCurTick = (iLastTick + i)&TICK_MASK
 			iIndex = self.HashCode(iCurTick)
 			stTimeLink = self.m_szData[iIndex]
 			self.TimeExecute(stTimeLink,iCurTick)
