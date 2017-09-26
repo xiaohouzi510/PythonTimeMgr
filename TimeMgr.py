@@ -171,6 +171,8 @@ class TimeMgr:
 
 		if stTimeNode.m_stNext != None:
 			stTimeNode.m_stNext.m_stFront = stTimeNode.m_stFront
+		else:
+			stTimeLink.m_stTail = stTimeNode.m_stFront
 
 	#打印所有定时器
 	def Display(self):
