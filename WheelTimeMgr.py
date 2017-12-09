@@ -47,7 +47,7 @@ class WheelTimerMgr:
 		self.m_szNear     = []
 		#每级 64 链表定时器，总共 6 级
 		self.m_szLevel    = []
-		#当前嘀哄
+		#当前嘀嗒
 		self.m_iCurTick   = 0
 		#最后一次系统时间
 		self.m_iLastTime  = self.GetCurTime()
