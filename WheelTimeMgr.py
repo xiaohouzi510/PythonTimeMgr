@@ -45,7 +45,7 @@ class WheelTimerMgr:
 	def __init__(self):
 		#前 255 个链表定时器 
 		self.m_szNear     = []
-		#每级 64 链表定时器，总共 6 级
+		#每级 64 链表定时器，总共 4 级
 		self.m_szLevel    = []
 		#当前嘀嗒
 		self.m_iCurTick   = 0
